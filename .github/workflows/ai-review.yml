@@ -1,0 +1,26 @@
+name: AI Review
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Jules
+        run: |
+          curl -X POST https://jules.googleapis.com/v1alpha/sessions \
+          -H "Content-Type: application/json" \
+          -H "x-goog-api-key: ${{ secrets.JULES_API_KEY }}" \
+          -d '{
+            "prompt": "Review this code and improve quality.",
+            "sourceContext": {
+              "source": "sources/github-yourusername-ai-pr-test",
+              "githubRepoContext": {
+                "startingBranch": "${{ github.head_ref }}"
+              }
+            },
+            "automationMode": "AUTO_CREATE_PR"
+          }'
