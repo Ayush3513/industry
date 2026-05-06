@@ -2,25 +2,17 @@ name: AI Review
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 jobs:
   review:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger Jules
+      - name: Get PR diff
         run: |
-          curl -X POST https://jules.googleapis.com/v1alpha/sessions \
-          -H "Content-Type: application/json" \
-          -H "x-goog-api-key: ${{ secrets.JULES_API_KEY }}" \
-          -d '{
-            "prompt": "Review this code and improve quality.",
-            "sourceContext": {
-              "source": "sources/github-yourusername-ai-pr-test",
-              "githubRepoContext": {
-                "startingBranch": "${{ github.head_ref }}"
-              }
-            },
-            "automationMode": "AUTO_CREATE_PR"
-          }'
+          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          ${{ github.event.pull_request.diff_url }} > diff.txt
+
+      - name: Show diff (debug)
+        run: cat diff.txt
