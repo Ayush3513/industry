@@ -11,16 +11,21 @@ jobs:
     steps:
       - name: Trigger Jules
         run: |
-          curl -X POST https://jules.googleapis.com/v1alpha/sessions \
+          echo "Triggering Jules..."
+          
+          RESPONSE=$(curl -X POST https://jules.googleapis.com/v1alpha/sessions \
           -H "Content-Type: application/json" \
           -H "x-goog-api-key: ${{ secrets.JULES_API_KEY }}" \
           -d '{
             "prompt": "Review this code and improve quality.",
             "sourceContext": {
-              "source": "sources/github-yourusername-ai-pr-test",
+              "source": "sources/github/Ayush3513/industry",
               "githubRepoContext": {
                 "startingBranch": "${{ github.head_ref }}"
               }
             },
             "automationMode": "AUTO_CREATE_PR"
-          }'
+          }')
+
+          echo "Response:"
+          echo $RESPONSE
