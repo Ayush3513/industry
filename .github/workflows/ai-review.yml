@@ -1,26 +1,158 @@
-name: AI Review
+name: AI Reviewer
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
 
 jobs:
+
   review:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger Jules
+
+      # ----------------------------------------
+      # Checkout Repository
+      # ----------------------------------------
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------
+      # Extract PR Diff
+      # ----------------------------------------
+
+      - name: Get PR Diff
         run: |
-          curl -X POST https://jules.googleapis.com/v1alpha/sessions \
+          curl -L \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          ${{ github.event.pull_request.diff_url }} \
+          -o diff.txt
+
+      # ----------------------------------------
+      # Load Review Rules
+      # ----------------------------------------
+
+      - name: Load Review Rules
+        run: |
+          cat REVIEW_RULES.md > context.txt
+          echo "" >> context.txt
+          cat MENTOR_STYLE.md >> context.txt
+
+      # ----------------------------------------
+      # Build Prompt
+      # ----------------------------------------
+
+      - name: Build Prompt
+        run: |
+
+          cat <<EOF > prompt.txt
+          You are a strict senior Odoo reviewer reviewing a pull request before it reaches production.
+
+          Review ONLY the changed code from this PR diff.
+
+          Your responsibilities:
+          - identify ORM misuse
+          - identify performance issues
+          - identify maintainability problems
+          - identify naming issues
+          - identify spelling or grammar issues
+          - suggest better Odoo practices
+
+          Repository Standards:
+          $(cat context.txt)
+
+          PR Diff:
+          $(head -c 12000 diff.txt)
+
+          Output Format:
+
+          ## Review Summary
+
+          ...
+
+          ## Inline Suggestions
+
+          - file.py line X:
+            suggestion
+
+          ## Performance Issues
+
+          ...
+
+          ## Spelling / Naming Issues
+
+          ...
+
+          EOF
+
+      # ----------------------------------------
+      # Generate AI Review using Gemini
+      # ----------------------------------------
+
+      - name: Generate AI Review
+        run: |
+
+          PROMPT=$(jq -Rs . < prompt.txt)
+
+          curl -X POST \
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
           -H "Content-Type: application/json" \
-          -H "x-goog-api-key: ${{ secrets.JULES_API_KEY }}" \
-          -d '{
-            "prompt": "Review this code and improve quality.",
-            "sourceContext": {
-              "source": "sources/github-yourusername-ai-pr-test",
-              "githubRepoContext": {
-                "startingBranch": "${{ github.head_ref }}"
-              }
-            },
-            "automationMode": "AUTO_CREATE_PR"
-          }'
+          -d "{
+            \"contents\": [{
+              \"parts\": [{
+                \"text\": $PROMPT
+              }]
+            }]
+          }" \
+          > response.json
+
+      # ----------------------------------------
+      # Extract AI Response
+      # ----------------------------------------
+
+      - name: Validate Gemini Response
+        run: |
+
+          if grep -q '"error"' response.json; then
+            echo "Gemini API Error:"
+            cat response.json
+            exit 1
+          fi
+      
+      - name: Debug Gemini Response
+        run: |
+          echo "========= FULL GEMINI RESPONSE ========="
+          cat response.json
+
+      - name: Extract Review
+        run: |
+
+          REVIEW=$(cat response.json | jq -r '
+            .candidates[0].content.parts[0].text // "No review generated"
+          ')
+
+          echo "$REVIEW" > final_review.txt
+
+          echo "========= AI REVIEW ========="
+          cat final_review.txt
+
+      # ----------------------------------------
+      # Post Comment To PR
+      # ----------------------------------------
+
+      - name: Post Review Comment
+        run: |
+
+          COMMENT=$(jq -Rs . < final_review.txt)
+
+          curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github+json" \
+          https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+          -d "{\"body\": $COMMENT }"
