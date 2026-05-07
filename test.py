@@ -9,6 +9,7 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+CONFIRMABLE_STATES = ['draft', 'sent']
 
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
@@ -20,21 +21,20 @@ class SaleOrder(models.Model):
         if not self:
             return True
 
-        valid_states = ['draft', 'sent']
-        invalid_state_orders = self.filtered_domain([('state', 'not in', valid_states)])
+        invalid_state_orders = self.filtered_domain([('state', 'not in', CONFIRMABLE_STATES)])
         if invalid_state_orders:
             raise UserError(_("Only draft and sent orders can be confirmed."))
+
+        # Validate that all records have an associated partner
+        # Use filtered_domain instead of filtered lambda for better performance
+        orders_without_partner = self.filtered_domain([('partner_id', '=', False)])
+        if orders_without_partner:
+            raise UserError(_("All selected records must have an associated partner."))
 
         skip_related = self.env.context.get('skip_related_confirmation')
         partners = self.env['res.partner']
 
         if not skip_related:
-            # Validate that all records have an associated partner
-            # Use filtered_domain instead of filtered lambda for better performance
-            orders_without_partner = self.filtered_domain([('partner_id', '=', False)])
-            if orders_without_partner:
-                raise UserError(_("All selected records must have an associated partner."))
-
             partners = self.mapped('partner_id')
 
         res = super().action_confirm()
@@ -51,12 +51,11 @@ class SaleOrder(models.Model):
         if not partners:
             return
 
-        valid_states = ['draft', 'sent']
         # Fetch unconfirmed sale orders for these partners
         # Excluding 'self' to avoid an infinite recursion loop
         related_orders = self.search([
             ('partner_id', 'in', partners.ids),
-            ('state', 'in', valid_states),
+            ('state', 'in', CONFIRMABLE_STATES),
             ('id', 'not in', self.ids)
         ])
 
