@@ -20,31 +20,32 @@ class SaleOrder(models.Model):
         if not self:
             return True
 
-        res = super().action_confirm()
-
         if not self.env.context.get('skip_related_confirmation'):
             # Validate that all records have an associated partner
             # Use filtered_domain instead of filtered lambda for better performance
-            records_without_partner = self.filtered_domain([('partner_id', '=', False)])
-            if records_without_partner:
+            invalid_orders = self.filtered_domain([('partner_id', '=', False)])
+            if invalid_orders:
                 raise UserError(_("All selected records must have an associated partner."))
 
+        res = super().action_confirm()
+
+        if not self.env.context.get('skip_related_confirmation'):
             partners = self.mapped('partner_id')
 
             # Fetch unconfirmed sale orders for these partners
             # Excluding 'self' to avoid an infinite recursion loop
-            orders_to_confirm = self.env['sale.order'].search([
+            related_orders = self.env['sale.order'].search([
                 ('partner_id', 'in', partners.ids),
                 ('state', 'in', ['draft', 'sent']),
                 ('id', 'not in', self.ids)
             ])
 
-            if orders_to_confirm:
+            if related_orders:
                 # Confirm the other orders found
-                orders_to_confirm.with_context(skip_related_confirmation=True).action_confirm()
+                related_orders.with_context(skip_related_confirmation=True).action_confirm()
                 _logger.info(
                     "Successfully confirmed %d additional sale order(s) for %d partner(s).",
-                    len(orders_to_confirm),
+                    len(related_orders),
                     len(partners)
                 )
 
