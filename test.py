@@ -20,12 +20,13 @@ class SaleOrder(models.Model):
         if not self:
             return True
 
-        invalid_state_orders = self.filtered_domain([('state', 'not in', ['draft', 'sent'])])
+        valid_states = ['draft', 'sent']
+        invalid_state_orders = self.filtered_domain([('state', 'not in', valid_states)])
         if invalid_state_orders:
             raise UserError(_("Only draft and sent orders can be confirmed."))
 
         skip_related = self.env.context.get('skip_related_confirmation')
-        partners = False
+        partners = self.env['res.partner']
 
         if not skip_related:
             # Validate that all records have an associated partner
@@ -47,11 +48,15 @@ class SaleOrder(models.Model):
         """
         Confirm related draft and sent sale orders for the given partners.
         """
+        if not partners:
+            return
+
+        valid_states = ['draft', 'sent']
         # Fetch unconfirmed sale orders for these partners
         # Excluding 'self' to avoid an infinite recursion loop
         related_orders = self.search([
             ('partner_id', 'in', partners.ids),
-            ('state', 'in', ['draft', 'sent']),
+            ('state', 'in', valid_states),
             ('id', 'not in', self.ids)
         ])
 
