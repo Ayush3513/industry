@@ -199,7 +199,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer ${{ secrets.GROQ_API_KEY }}" \
           -d "{
-            \"model\": \"deepseek-r1-distill-llama-70b\",
+            \"model\": \"qwen-qwq-32b\",
             \"messages\": [
               {
                 \"role\": \"system\",
