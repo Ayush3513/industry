@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
 jobs:
 
   review:
@@ -63,7 +68,7 @@ jobs:
           $(cat context.txt)
 
           PR Diff:
-          $(cat diff.txt)
+          $(head -c 12000 diff.txt)
 
           Output Format:
 
@@ -111,12 +116,28 @@ jobs:
       # Extract AI Response
       # ----------------------------------------
 
+      - name: Validate Gemini Response
+        run: |
+
+          if grep -q '"error"' response.json; then
+            echo "Gemini API Error:"
+            cat response.json
+            exit 1
+          fi
+      
+      - name: Debug Gemini Response
+        run: |
+          echo "========= FULL GEMINI RESPONSE ========="
+          cat response.json
+
       - name: Extract Review
         run: |
 
-          cat response.json | jq -r \
-          '.candidates[0].content.parts[0].text' \
-          > final_review.txt
+          REVIEW=$(cat response.json | jq -r '
+            .candidates[0].content.parts[0].text // "No review generated"
+          ')
+
+          echo "$REVIEW" > final_review.txt
 
           echo "========= AI REVIEW ========="
           cat final_review.txt
