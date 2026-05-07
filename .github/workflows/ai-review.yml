@@ -105,7 +105,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
           -d "{
-            \"model\": \"deepseek/deepseek-chat-v3-0324:free\",
+            \"model\": \"deepseek/deepseek-r1:free\",
             \"messages\": [
               {
                 \"role\": \"system\",
