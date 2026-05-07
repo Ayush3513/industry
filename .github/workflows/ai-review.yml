@@ -35,7 +35,7 @@ jobs:
           -o diff.txt
 
       # ----------------------------------------
-      # Load Review Rules
+      # Load Repository Rules
       # ----------------------------------------
 
       - name: Load Review Rules
@@ -45,7 +45,7 @@ jobs:
           cat MENTOR_STYLE.md >> context.txt
 
       # ----------------------------------------
-      # Build Prompt
+      # Build AI Prompt
       # ----------------------------------------
 
       - name: Build Prompt
@@ -63,6 +63,7 @@ jobs:
           - identify naming issues
           - identify spelling or grammar issues
           - suggest better Odoo practices
+          - review code like an experienced Belgian Odoo reviewer
 
           Repository Standards:
           $(cat context.txt)
@@ -92,7 +93,7 @@ jobs:
           EOF
 
       # ----------------------------------------
-      # Generate AI Review using Gemini
+      # Generate AI Review (OpenRouter)
       # ----------------------------------------
 
       - name: Generate AI Review
@@ -100,41 +101,55 @@ jobs:
 
           PROMPT=$(jq -Rs . < prompt.txt)
 
-          curl -X POST \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+          curl https://openrouter.ai/api/v1/chat/completions \
           -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
           -d "{
-            \"contents\": [{
-              \"parts\": [{
-                \"text\": $PROMPT
-              }]
-            }]
+            \"model\": \"deepseek/deepseek-chat-v3-0324:free\",
+            \"messages\": [
+              {
+                \"role\": \"system\",
+                \"content\": \"You are a strict senior Odoo reviewer.\"
+              },
+              {
+                \"role\": \"user\",
+                \"content\": $PROMPT
+              }
+            ]
           }" \
           > response.json
 
       # ----------------------------------------
-      # Extract AI Response
+      # Debug Full Response
       # ----------------------------------------
 
-      - name: Validate Gemini Response
+      - name: Debug AI Response
+        run: |
+          echo "========= FULL RESPONSE ========="
+          cat response.json
+
+      # ----------------------------------------
+      # Validate API Response
+      # ----------------------------------------
+
+      - name: Validate Response
         run: |
 
           if grep -q '"error"' response.json; then
-            echo "Gemini API Error:"
+            echo "AI API Error:"
             cat response.json
             exit 1
           fi
-      
-      - name: Debug Gemini Response
-        run: |
-          echo "========= FULL GEMINI RESPONSE ========="
-          cat response.json
+
+      # ----------------------------------------
+      # Extract AI Review
+      # ----------------------------------------
 
       - name: Extract Review
         run: |
 
           REVIEW=$(cat response.json | jq -r '
-            .candidates[0].content.parts[0].text // "No review generated"
+            .choices[0].message.content // "No review generated"
           ')
 
           echo "$REVIEW" > final_review.txt
@@ -143,7 +158,7 @@ jobs:
           cat final_review.txt
 
       # ----------------------------------------
-      # Post Comment To PR
+      # Post Comment To Pull Request
       # ----------------------------------------
 
       - name: Post Review Comment
