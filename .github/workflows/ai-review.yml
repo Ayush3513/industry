@@ -58,19 +58,27 @@ jobs:
 
           echo "" >> static_analysis.txt
           echo "### print() usage" >> static_analysis.txt
-          grep -rn "print(" . >> static_analysis.txt || true
+          grep -rn "print(" . \
+            --exclude=static_analysis.txt \
+            >> static_analysis.txt || true
 
           echo "" >> static_analysis.txt
           echo "### sudo() usage" >> static_analysis.txt
-          grep -rn "sudo()" . >> static_analysis.txt || true
+          grep -rn "sudo()" . \
+            --exclude=static_analysis.txt \
+            >> static_analysis.txt || true
 
           echo "" >> static_analysis.txt
           echo "### raw SQL usage" >> static_analysis.txt
-          grep -rn "cr.execute" . >> static_analysis.txt || true
+          grep -rn "cr.execute" . \
+            --exclude=static_analysis.txt \
+            >> static_analysis.txt || true
 
           echo "" >> static_analysis.txt
           echo "### search() usage" >> static_analysis.txt
-          grep -rn "search(" . >> static_analysis.txt || true
+          grep -rn "search(" . \
+            --exclude=static_analysis.txt \
+            >> static_analysis.txt || true
 
       # ------------------------------------------------
       # LOAD REPOSITORY CONTEXT
@@ -120,46 +128,64 @@ jobs:
         shell: bash
         run: |
 
-          cat > prompt.txt <<'EOF'
-          You are a strict senior Belgian Odoo reviewer.
+          {
+            echo "You are a strict senior Belgian Odoo reviewer."
+            echo ""
+            echo "Review ONLY the changed code from this pull request."
+            echo ""
+            echo "You are reviewing code BEFORE it reaches production."
+            echo ""
+            echo "IMPORTANT:"
+            echo "- Avoid generic explanations"
+            echo "- Keep comments concise"
+            echo "- Focus only on meaningful problems"
+            echo "- Avoid repeating repository rules"
+            echo "- Do not generate huge paragraphs"
+            echo ""
+            echo "Your responsibilities:"
+            echo "- identify ORM misuse"
+            echo "- identify performance issues"
+            echo "- identify maintainability problems"
+            echo "- identify naming issues"
+            echo "- identify spelling issues"
+            echo "- identify bad Odoo practices"
+            echo ""
 
-          Review ONLY the changed code from this pull request.
+            echo "==============================="
+            echo "Repository Standards"
+            echo "==============================="
+            cat context.txt
 
-          You are reviewing code BEFORE it reaches production.
+            echo ""
+            echo "==============================="
+            echo "Static Analysis"
+            echo "==============================="
+            cat static_analysis.txt
 
-          IMPORTANT:
-          - Avoid generic explanations
-          - Keep comments concise
-          - Focus only on meaningful problems
-          - Avoid repeating repository rules
-          - Do not generate huge paragraphs
+            echo ""
+            echo "==============================="
+            echo "Repository Context"
+            echo "==============================="
+            head -c 8000 repo_context.txt
 
-          Your responsibilities:
-          - identify ORM misuse
-          - identify performance issues
-          - identify maintainability problems
-          - identify naming issues
-          - identify spelling issues
-          - identify bad Odoo practices
+            echo ""
+            echo "==============================="
+            echo "Historical Review Preferences"
+            echo "==============================="
+            head -c 4000 review_memory.txt
 
-          Repository Standards:
-          __CONTEXT__
+            echo ""
+            echo "==============================="
+            echo "Pull Request Diff"
+            echo "==============================="
+            head -c 12000 diff.txt
 
-          Static Analysis:
-          __STATIC_ANALYSIS__
+            echo ""
+            echo "==============================="
+            echo "OUTPUT FORMAT"
+            echo "==============================="
 
-          Repository Context:
-          __REPO_CONTEXT__
-
-          Historical Review Preferences:
-          __REVIEW_MEMORY__
-
-          Pull Request Diff:
-          __DIFF__
-
-          OUTPUT STRICTLY IN JSON.
-
-          FORMAT:
+            cat <<'EOF'
 
           {
             "summary": {
@@ -185,17 +211,10 @@ jobs:
           }
 
           ONLY RETURN VALID JSON.
+
           EOF
 
-          sed -i "s|__CONTEXT__|$(cat context.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
-
-          sed -i "s|__STATIC_ANALYSIS__|$(cat static_analysis.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
-
-          sed -i "s|__REPO_CONTEXT__|$(head -c 8000 repo_context.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
-
-          sed -i "s|__REVIEW_MEMORY__|$(head -c 4000 review_memory.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
-
-          sed -i "s|__DIFF__|$(head -c 12000 diff.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+                    } > prompt.txt
 
       # ------------------------------------------------
       # GENERATE AI REVIEW
@@ -248,7 +267,7 @@ jobs:
           fi
 
       # ------------------------------------------------
-      # EXTRACT REVIEW
+      # EXTRACT AI REVIEW
       # ------------------------------------------------
 
       - name: Extract Review JSON
