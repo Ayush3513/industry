@@ -16,16 +16,16 @@ jobs:
 
     steps:
 
-      # ----------------------------------------
+      # ------------------------------------------------
       # Checkout Repository
-      # ----------------------------------------
+      # ------------------------------------------------
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ----------------------------------------
+      # ------------------------------------------------
       # Extract Pull Request Diff
-      # ----------------------------------------
+      # ------------------------------------------------
 
       - name: Get PR Diff
         run: |
@@ -34,19 +34,40 @@ jobs:
           ${{ github.event.pull_request.diff_url }} \
           -o diff.txt
 
-      # ----------------------------------------
-      # Load Review Context
-      # ----------------------------------------
+      # ------------------------------------------------
+      # Load Review Rules & Mentor Style
+      # ------------------------------------------------
 
-      - name: Load Review Rules
+      - name: Load Review Context
         run: |
           cat REVIEW_RULES.md > context.txt
           echo "" >> context.txt
           cat MENTOR_STYLE.md >> context.txt
 
-      # ----------------------------------------
+      # ------------------------------------------------
+      # Static Analysis Checks
+      # ------------------------------------------------
+
+      - name: Static Analysis
+        run: |
+
+          echo "## Static Analysis Findings" > static_analysis.txt
+
+          echo "" >> static_analysis.txt
+          echo "### print() usage" >> static_analysis.txt
+          grep -rn "print(" . >> static_analysis.txt || echo "No print statements found" >> static_analysis.txt
+
+          echo "" >> static_analysis.txt
+          echo "### sudo() usage" >> static_analysis.txt
+          grep -rn "sudo()" . >> static_analysis.txt || echo "No sudo misuse found" >> static_analysis.txt
+
+          echo "" >> static_analysis.txt
+          echo "### Raw SQL usage" >> static_analysis.txt
+          grep -rn "cr.execute" . >> static_analysis.txt || echo "No raw SQL found" >> static_analysis.txt
+
+      # ------------------------------------------------
       # Build AI Prompt
-      # ----------------------------------------
+      # ------------------------------------------------
 
       - name: Build Prompt
         run: |
@@ -65,13 +86,31 @@ jobs:
           - suggest better Odoo practices
           - review code like an experienced Belgian Odoo reviewer
 
+          Also provide:
+          - quality score out of 10
+          - readability score
+          - ORM usage score
+          - maintainability score
+          - performance score
+
           Repository Standards:
           $(cat context.txt)
+
+          Static Analysis Findings:
+          $(cat static_analysis.txt)
 
           Pull Request Diff:
           $(head -c 12000 diff.txt)
 
           Output Format:
+
+          ## AI Review Score
+          Overall: X/10
+
+          Readability: X/10
+          Performance: X/10
+          ORM Usage: X/10
+          Maintainability: X/10
 
           ## Review Summary
 
@@ -90,11 +129,17 @@ jobs:
 
           ...
 
+          ## Suggested Refactors
+
+          ```python
+          improved code example
+          ```
+
           EOF
 
-      # ----------------------------------------
-      # Generate AI Review using Groq
-      # ----------------------------------------
+      # ------------------------------------------------
+      # Generate AI Review Using Groq
+      # ------------------------------------------------
 
       - name: Generate AI Review
         run: |
@@ -120,18 +165,18 @@ jobs:
           }" \
           > response.json
 
-      # ----------------------------------------
-      # Debug Full Response
-      # ----------------------------------------
+      # ------------------------------------------------
+      # Debug Full AI Response
+      # ------------------------------------------------
 
       - name: Debug AI Response
         run: |
           echo "========= FULL RESPONSE ========="
           cat response.json
 
-      # ----------------------------------------
+      # ------------------------------------------------
       # Validate AI Response
-      # ----------------------------------------
+      # ------------------------------------------------
 
       - name: Validate Response
         run: |
@@ -142,9 +187,9 @@ jobs:
             exit 1
           fi
 
-      # ----------------------------------------
+      # ------------------------------------------------
       # Extract AI Review
-      # ----------------------------------------
+      # ------------------------------------------------
 
       - name: Extract Review
         run: |
@@ -158,9 +203,9 @@ jobs:
           echo "========= AI REVIEW ========="
           cat final_review.txt
 
-      # ----------------------------------------
-      # Post AI Review Comment to PR
-      # ----------------------------------------
+      # ------------------------------------------------
+      # Post Main PR Comment
+      # ------------------------------------------------
 
       - name: Post Review Comment
         run: |
@@ -172,3 +217,21 @@ jobs:
           -H "Accept: application/vnd.github+json" \
           https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
           -d "{\"body\": $COMMENT }"
+
+      # ------------------------------------------------
+      # Add Automatic Labels
+      # ------------------------------------------------
+
+      - name: Add Labels
+        run: |
+
+          curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github+json" \
+          https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels \
+          -d '{
+            "labels":[
+              "ai-reviewed",
+              "needs-review"
+            ]
+          }'
