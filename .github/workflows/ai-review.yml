@@ -1,4 +1,4 @@
-name: AI PR Reviewer
+name: Enterprise AI Reviewer
 
 on:
   pull_request:
@@ -17,35 +17,38 @@ jobs:
     steps:
 
       # ------------------------------------------------
-      # Checkout Repository
+      # CHECKOUT REPOSITORY
       # ------------------------------------------------
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       # ------------------------------------------------
-      # Extract Pull Request Diff
+      # GET PR DIFF
       # ------------------------------------------------
 
-      - name: Get PR Diff
+      - name: Extract Pull Request Diff
         run: |
           curl -L \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          ${{ github.event.pull_request.diff_url }} \
+          "${{ github.event.pull_request.diff_url }}" \
           -o diff.txt
 
       # ------------------------------------------------
-      # Load Review Rules & Mentor Style
+      # LOAD REVIEW RULES
       # ------------------------------------------------
 
       - name: Load Review Context
         run: |
+          touch REVIEW_RULES.md
+          touch MENTOR_STYLE.md
+
           cat REVIEW_RULES.md > context.txt
           echo "" >> context.txt
           cat MENTOR_STYLE.md >> context.txt
 
       # ------------------------------------------------
-      # Static Analysis Checks
+      # STATIC ANALYSIS
       # ------------------------------------------------
 
       - name: Static Analysis
@@ -55,90 +58,147 @@ jobs:
 
           echo "" >> static_analysis.txt
           echo "### print() usage" >> static_analysis.txt
-          grep -rn "print(" . >> static_analysis.txt || echo "No print statements found" >> static_analysis.txt
+          grep -rn "print(" . >> static_analysis.txt || true
 
           echo "" >> static_analysis.txt
           echo "### sudo() usage" >> static_analysis.txt
-          grep -rn "sudo()" . >> static_analysis.txt || echo "No sudo misuse found" >> static_analysis.txt
+          grep -rn "sudo()" . >> static_analysis.txt || true
 
           echo "" >> static_analysis.txt
-          echo "### Raw SQL usage" >> static_analysis.txt
-          grep -rn "cr.execute" . >> static_analysis.txt || echo "No raw SQL found" >> static_analysis.txt
+          echo "### raw SQL usage" >> static_analysis.txt
+          grep -rn "cr.execute" . >> static_analysis.txt || true
+
+          echo "" >> static_analysis.txt
+          echo "### search() usage" >> static_analysis.txt
+          grep -rn "search(" . >> static_analysis.txt || true
 
       # ------------------------------------------------
-      # Build AI Prompt
+      # LOAD REPOSITORY CONTEXT
+      # ------------------------------------------------
+
+      - name: Repository Context
+        run: |
+
+          echo "## Repository Context" > repo_context.txt
+
+          find . -name "*.py" | head -20 >> repo_context.txt
+
+          echo "" >> repo_context.txt
+          echo "## Important Model Files" >> repo_context.txt
+
+          find . -path "*/models/*.py" | head -10 | while read file
+          do
+            echo "" >> repo_context.txt
+            echo "FILE: $file" >> repo_context.txt
+            head -50 "$file" >> repo_context.txt
+          done
+
+      # ------------------------------------------------
+      # LOAD HISTORICAL PR MEMORY
+      # ------------------------------------------------
+
+      - name: Historical PR Memory
+        run: |
+
+          curl -L \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls?state=closed&per_page=20" \
+          > previous_prs.json
+
+          echo "## Historical Reviewer Preferences" > review_memory.txt
+
+          cat previous_prs.json | jq -r '
+            .[] |
+            "- PR #" + (.number|tostring) + ": " + (.title // "")
+          ' >> review_memory.txt || true
+
+      # ------------------------------------------------
+      # BUILD PROMPT
       # ------------------------------------------------
 
       - name: Build Prompt
+        shell: bash
         run: |
 
-          cat <<EOF > prompt.txt
-          You are a strict senior Odoo reviewer reviewing a pull request before it reaches production.
+          cat > prompt.txt <<'EOF'
+          You are a strict senior Belgian Odoo reviewer.
 
-          Review ONLY the changed code from this pull request diff.
+          Review ONLY the changed code from this pull request.
+
+          You are reviewing code BEFORE it reaches production.
+
+          IMPORTANT:
+          - Avoid generic explanations
+          - Keep comments concise
+          - Focus only on meaningful problems
+          - Avoid repeating repository rules
+          - Do not generate huge paragraphs
 
           Your responsibilities:
           - identify ORM misuse
           - identify performance issues
           - identify maintainability problems
           - identify naming issues
-          - identify spelling or grammar issues
-          - suggest better Odoo practices
-          - review code like an experienced Belgian Odoo reviewer
-
-          Also provide:
-          - quality score out of 10
-          - readability score
-          - ORM usage score
-          - maintainability score
-          - performance score
+          - identify spelling issues
+          - identify bad Odoo practices
 
           Repository Standards:
-          $(cat context.txt)
+          __CONTEXT__
 
-          Static Analysis Findings:
-          $(cat static_analysis.txt)
+          Static Analysis:
+          __STATIC_ANALYSIS__
+
+          Repository Context:
+          __REPO_CONTEXT__
+
+          Historical Review Preferences:
+          __REVIEW_MEMORY__
 
           Pull Request Diff:
-          $(head -c 12000 diff.txt)
+          __DIFF__
 
-          Output Format:
+          OUTPUT STRICTLY IN JSON.
 
-          ## AI Review Score
-          Overall: X/10
+          FORMAT:
 
-          Readability: X/10
-          Performance: X/10
-          ORM Usage: X/10
-          Maintainability: X/10
+          {
+            "summary": {
+              "overall_score": 7,
+              "readability": 8,
+              "performance": 5,
+              "orm_usage": 6,
+              "maintainability": 7
+            },
+            "comments": [
+              {
+                "file": "test.py",
+                "line": 7,
+                "severity": "medium",
+                "category": "performance",
+                "comment": "Avoid looping on recordsets; batch operations would reduce ORM queries."
+              }
+            ],
+            "quick_summary": [
+              "search() inside loop detected",
+              "print() used in production code"
+            ]
+          }
 
-          ## Review Summary
-
-          ...
-
-          ## Inline Suggestions
-
-          - file.py line X:
-            suggestion
-
-          ## Performance Issues
-
-          ...
-
-          ## Spelling / Naming Issues
-
-          ...
-
-          ## Suggested Refactors
-
-          ```python
-          improved code example
-          ```
-
+          ONLY RETURN VALID JSON.
           EOF
 
+          sed -i "s|__CONTEXT__|$(cat context.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+
+          sed -i "s|__STATIC_ANALYSIS__|$(cat static_analysis.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+
+          sed -i "s|__REPO_CONTEXT__|$(head -c 8000 repo_context.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+
+          sed -i "s|__REVIEW_MEMORY__|$(head -c 4000 review_memory.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+
+          sed -i "s|__DIFF__|$(head -c 12000 diff.txt | tr '\n' ' ' | sed 's/[&/\]/\\&/g')|g" prompt.txt
+
       # ------------------------------------------------
-      # Generate AI Review Using Groq
+      # GENERATE AI REVIEW
       # ------------------------------------------------
 
       - name: Generate AI Review
@@ -154,72 +214,130 @@ jobs:
             \"messages\": [
               {
                 \"role\": \"system\",
-                \"content\": \"You are a strict senior Odoo reviewer.\"
+                \"content\": \"You are an enterprise Odoo PR reviewer.\"
               },
               {
                 \"role\": \"user\",
                 \"content\": $PROMPT
               }
             ],
-            \"temperature\": 0.2
+            \"temperature\": 0.1
           }" \
           > response.json
 
       # ------------------------------------------------
-      # Debug Full AI Response
+      # DEBUG RESPONSE
       # ------------------------------------------------
 
-      - name: Debug AI Response
+      - name: Debug Response
         run: |
           echo "========= FULL RESPONSE ========="
           cat response.json
 
       # ------------------------------------------------
-      # Validate AI Response
+      # VALIDATE RESPONSE
       # ------------------------------------------------
 
-      - name: Validate Response
+      - name: Validate AI Response
         run: |
 
           if grep -q '"error"' response.json; then
-            echo "AI API Error:"
+            echo "AI API Error"
             cat response.json
             exit 1
           fi
 
       # ------------------------------------------------
-      # Extract AI Review
+      # EXTRACT REVIEW
       # ------------------------------------------------
 
-      - name: Extract Review
+      - name: Extract Review JSON
         run: |
 
-          REVIEW=$(cat response.json | jq -r '
-            .choices[0].message.content // "No review generated"
-          ')
-
-          echo "$REVIEW" > final_review.txt
+          cat response.json | jq -r '
+            .choices[0].message.content
+          ' > ai_review.json
 
           echo "========= AI REVIEW ========="
-          cat final_review.txt
+          cat ai_review.json
 
       # ------------------------------------------------
-      # Post Main PR Comment
+      # CREATE SUMMARY COMMENT
       # ------------------------------------------------
 
-      - name: Post Review Comment
+      - name: Create Summary Comment
         run: |
 
-          COMMENT=$(jq -Rs . < final_review.txt)
+          OVERALL=$(jq -r '.summary.overall_score // "N/A"' ai_review.json)
+          READABILITY=$(jq -r '.summary.readability // "N/A"' ai_review.json)
+          PERFORMANCE=$(jq -r '.summary.performance // "N/A"' ai_review.json)
+          ORM=$(jq -r '.summary.orm_usage // "N/A"' ai_review.json)
+          MAINTAINABILITY=$(jq -r '.summary.maintainability // "N/A"' ai_review.json)
+
+          {
+            echo "## 🤖 AI Review Summary"
+            echo ""
+            echo "| Metric | Score |"
+            echo "|---|---|"
+            echo "| Overall | $OVERALL/10 |"
+            echo "| Readability | $READABILITY/10 |"
+            echo "| Performance | $PERFORMANCE/10 |"
+            echo "| ORM Usage | $ORM/10 |"
+            echo "| Maintainability | $MAINTAINABILITY/10 |"
+            echo ""
+            echo "### Quick Findings"
+            jq -r '.quick_summary[]?' ai_review.json
+          } > pr_summary.md
+
+          cat pr_summary.md
+
+      # ------------------------------------------------
+      # POST SUMMARY COMMENT
+      # ------------------------------------------------
+
+      - name: Post Summary Comment
+        run: |
+
+          BODY=$(jq -Rs . < pr_summary.md)
 
           curl -X POST \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           -H "Accept: application/vnd.github+json" \
           https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-          -d "{\"body\": $COMMENT }"
+          -d "{\"body\": $BODY }"
 
       # ------------------------------------------------
-      # Add Automatic Labels
+      # POST INLINE COMMENTS
+      # ------------------------------------------------
+
+      - name: Post Inline Review Comments
+        run: |
+
+          COMMENTS=$(jq -c '.comments // []' ai_review.json)
+
+          echo "$COMMENTS" | jq -c '.[]' | while read comment
+          do
+
+            FILE=$(echo "$comment" | jq -r '.file')
+            LINE=$(echo "$comment" | jq -r '.line')
+            BODY=$(echo "$comment" | jq -r '.comment')
+
+            curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments \
+            -d "{
+              \"body\": \"$BODY\",
+              \"commit_id\": \"${{ github.event.pull_request.head.sha }}\",
+              \"path\": \"$FILE\",
+              \"line\": $LINE,
+              \"side\": \"RIGHT\"
+            }"
+
+          done
+
+      # ------------------------------------------------
+      # AUTO LABELING
       # ------------------------------------------------
 
       - name: Add Labels
@@ -230,7 +348,7 @@ jobs:
           -H "Accept: application/vnd.github+json" \
           https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels \
           -d '{
-            "labels":[
+            "labels": [
               "ai-reviewed",
               "needs-review"
             ]
