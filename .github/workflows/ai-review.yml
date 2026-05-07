@@ -40,6 +40,7 @@ jobs:
 
       - name: Load Review Context
         run: |
+
           touch REVIEW_RULES.md
           touch MENTOR_STYLE.md
 
@@ -141,6 +142,9 @@ jobs:
             echo "- Focus only on meaningful problems"
             echo "- Avoid repeating repository rules"
             echo "- Do not generate huge paragraphs"
+            echo "- DO NOT REPEAT SAME SUGGESTION"
+            echo "- MAXIMUM 10 REVIEW COMMENTS"
+            echo "- RETURN CONCISE REVIEW"
             echo ""
             echo "Your responsibilities:"
             echo "- identify ORM misuse"
@@ -166,55 +170,21 @@ jobs:
             echo "==============================="
             echo "Repository Context"
             echo "==============================="
-            head -c 8000 repo_context.txt
+            head -c 5000 repo_context.txt
 
             echo ""
             echo "==============================="
             echo "Historical Review Preferences"
             echo "==============================="
-            head -c 4000 review_memory.txt
+            head -c 2000 review_memory.txt
 
             echo ""
             echo "==============================="
             echo "Pull Request Diff"
             echo "==============================="
-            head -c 12000 diff.txt
+            head -c 8000 diff.txt
 
-            echo ""
-            echo "==============================="
-            echo "OUTPUT FORMAT"
-            echo "==============================="
-
-            cat <<'EOF'
-
-          {
-            "summary": {
-              "overall_score": 7,
-              "readability": 8,
-              "performance": 5,
-              "orm_usage": 6,
-              "maintainability": 7
-            },
-            "comments": [
-              {
-                "file": "test.py",
-                "line": 7,
-                "severity": "medium",
-                "category": "performance",
-                "comment": "Avoid looping on recordsets; batch operations would reduce ORM queries."
-              }
-            ],
-            "quick_summary": [
-              "search() inside loop detected",
-              "print() used in production code"
-            ]
-          }
-
-          ONLY RETURN VALID JSON.
-
-          EOF
-
-                    } > prompt.txt
+          } > prompt.txt
 
       # ------------------------------------------------
       # GENERATE AI REVIEW
@@ -229,7 +199,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer ${{ secrets.GROQ_API_KEY }}" \
           -d "{
-            \"model\": \"llama-3.3-70b-versatile\",
+            \"model\": \"deepseek-r1-distill-llama-70b\",
             \"messages\": [
               {
                 \"role\": \"system\",
@@ -250,6 +220,7 @@ jobs:
 
       - name: Debug Response
         run: |
+
           echo "========= FULL RESPONSE ========="
           cat response.json
 
@@ -270,90 +241,47 @@ jobs:
       # EXTRACT AI REVIEW
       # ------------------------------------------------
 
-      - name: Extract Review JSON
+      - name: Extract AI Review
         run: |
 
           cat response.json | jq -r '
             .choices[0].message.content
-          ' > ai_review.json
+          ' > ai_review.txt
 
           echo "========= AI REVIEW ========="
-          cat ai_review.json
+          cat ai_review.txt
 
       # ------------------------------------------------
-      # CREATE SUMMARY COMMENT
+      # CREATE FINAL COMMENT
       # ------------------------------------------------
 
-      - name: Create Summary Comment
+      - name: Create Final Comment
         run: |
-
-          OVERALL=$(jq -r '.summary.overall_score // "N/A"' ai_review.json)
-          READABILITY=$(jq -r '.summary.readability // "N/A"' ai_review.json)
-          PERFORMANCE=$(jq -r '.summary.performance // "N/A"' ai_review.json)
-          ORM=$(jq -r '.summary.orm_usage // "N/A"' ai_review.json)
-          MAINTAINABILITY=$(jq -r '.summary.maintainability // "N/A"' ai_review.json)
 
           {
-            echo "## 🤖 AI Review Summary"
+            echo "## 🤖 Enterprise AI Review"
             echo ""
-            echo "| Metric | Score |"
-            echo "|---|---|"
-            echo "| Overall | $OVERALL/10 |"
-            echo "| Readability | $READABILITY/10 |"
-            echo "| Performance | $PERFORMANCE/10 |"
-            echo "| ORM Usage | $ORM/10 |"
-            echo "| Maintainability | $MAINTAINABILITY/10 |"
+            echo "---"
             echo ""
-            echo "### Quick Findings"
-            jq -r '.quick_summary[]?' ai_review.json
-          } > pr_summary.md
+            cat ai_review.txt
+          } > final_comment.md
 
-          cat pr_summary.md
+          cat final_comment.md
 
       # ------------------------------------------------
-      # POST SUMMARY COMMENT
+      # POST PR COMMENT
       # ------------------------------------------------
 
-      - name: Post Summary Comment
+      - name: Post PR Comment
         run: |
 
-          BODY=$(jq -Rs . < pr_summary.md)
+          BODY=$(jq -Rs . < final_comment.md)
 
           curl -X POST \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           -H "Accept: application/vnd.github+json" \
           https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
           -d "{\"body\": $BODY }"
-
-      # ------------------------------------------------
-      # POST INLINE COMMENTS
-      # ------------------------------------------------
-
-      - name: Post Inline Review Comments
-        run: |
-
-          COMMENTS=$(jq -c '.comments // []' ai_review.json)
-
-          echo "$COMMENTS" | jq -c '.[]' | while read comment
-          do
-
-            FILE=$(echo "$comment" | jq -r '.file')
-            LINE=$(echo "$comment" | jq -r '.line')
-            BODY=$(echo "$comment" | jq -r '.comment')
-
-            curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments \
-            -d "{
-              \"body\": \"$BODY\",
-              \"commit_id\": \"${{ github.event.pull_request.head.sha }}\",
-              \"path\": \"$FILE\",
-              \"line\": $LINE,
-              \"side\": \"RIGHT\"
-            }"
-
-          done
 
       # ------------------------------------------------
       # AUTO LABELING
