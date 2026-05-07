@@ -21,20 +21,20 @@ def action_confirm(self):
     if records_without_partner:
         raise UserError(_("All selected records must have an associated partner."))
 
-    partners = self.mapped("partner_id")
+    partners = self.partner_id
     if not partners:
         raise UserError(_("No valid partners found for the selected records."))
 
-    draft_orders = self.env["sale.order"].search([
+    orders_to_confirm = self.env["sale.order"].search([
         ("partner_id", "in", partners.ids),
         ("state", "in", ["draft", "sent"])
     ])
 
-    if not draft_orders:
+    if not orders_to_confirm:
         raise UserError(_("No unconfirmed sale orders found for the associated partners."))
 
-    draft_orders.action_confirm()
+    orders_to_confirm.action_confirm()
 
-    _logger.info("Successfully confirmed %d sale order(s) for %d partner(s).", len(draft_orders), len(partners))
+    _logger.info("Successfully confirmed %d sale order(s) for %d partner(s).", len(orders_to_confirm), len(partners))
 
     return True
