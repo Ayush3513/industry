@@ -1,4 +1,4 @@
-name: AI Reviewer
+name: AI PR Reviewer
 
 on:
   pull_request:
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ----------------------------------------
-      # Extract PR Diff
+      # Extract Pull Request Diff
       # ----------------------------------------
 
       - name: Get PR Diff
@@ -35,7 +35,7 @@ jobs:
           -o diff.txt
 
       # ----------------------------------------
-      # Load Repository Rules
+      # Load Review Context
       # ----------------------------------------
 
       - name: Load Review Rules
@@ -54,7 +54,7 @@ jobs:
           cat <<EOF > prompt.txt
           You are a strict senior Odoo reviewer reviewing a pull request before it reaches production.
 
-          Review ONLY the changed code from this PR diff.
+          Review ONLY the changed code from this pull request diff.
 
           Your responsibilities:
           - identify ORM misuse
@@ -68,7 +68,7 @@ jobs:
           Repository Standards:
           $(cat context.txt)
 
-          PR Diff:
+          Pull Request Diff:
           $(head -c 12000 diff.txt)
 
           Output Format:
@@ -93,7 +93,7 @@ jobs:
           EOF
 
       # ----------------------------------------
-      # Generate AI Review (OpenRouter)
+      # Generate AI Review using Groq
       # ----------------------------------------
 
       - name: Generate AI Review
@@ -101,11 +101,11 @@ jobs:
 
           PROMPT=$(jq -Rs . < prompt.txt)
 
-          curl https://openrouter.ai/api/v1/chat/completions \
+          curl https://api.groq.com/openai/v1/chat/completions \
           -H "Content-Type: application/json" \
-          -H "Authorization: Bearer ${{ secrets.OPENROUTER_API_KEY }}" \
+          -H "Authorization: Bearer ${{ secrets.GROQ_API_KEY }}" \
           -d "{
-            \"model\": \"meta-llama/llama-3.3-70b-instruct:free\",
+            \"model\": \"llama-3.3-70b-versatile\",
             \"messages\": [
               {
                 \"role\": \"system\",
@@ -115,7 +115,8 @@ jobs:
                 \"role\": \"user\",
                 \"content\": $PROMPT
               }
-            ]
+            ],
+            \"temperature\": 0.2
           }" \
           > response.json
 
@@ -129,7 +130,7 @@ jobs:
           cat response.json
 
       # ----------------------------------------
-      # Validate API Response
+      # Validate AI Response
       # ----------------------------------------
 
       - name: Validate Response
@@ -158,7 +159,7 @@ jobs:
           cat final_review.txt
 
       # ----------------------------------------
-      # Post Comment To Pull Request
+      # Post AI Review Comment to PR
       # ----------------------------------------
 
       - name: Post Review Comment
