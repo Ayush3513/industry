@@ -1,26 +1,46 @@
-name: AI Review
+name: AI PR Review
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 jobs:
   review:
+    if: github.event.pull_request.head.ref != 'main'
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger Jules
+
+      - name: Trigger Jules AI Review
         run: |
-          curl -X POST https://jules.googleapis.com/v1alpha/sessions \
+
+          echo "🚀 Starting AI Review..."
+
+          RESPONSE=$(curl -X POST https://jules.googleapis.com/v1alpha/sessions \
           -H "Content-Type: application/json" \
           -H "x-goog-api-key: ${{ secrets.JULES_API_KEY }}" \
           -d '{
-            "prompt": "Review this code and improve quality.",
+            "prompt": "Act as a senior Odoo reviewer. Review this branch carefully. Fix ORM misuse, improve performance, follow Odoo best practices, improve naming conventions, add validations and generate production-ready improvements. Then create an improved PR.",
             "sourceContext": {
-              "source": "sources/github-yourusername-ai-pr-test",
+              "source": "sources/github/Ayush3513/industry",
               "githubRepoContext": {
                 "startingBranch": "${{ github.head_ref }}"
               }
             },
             "automationMode": "AUTO_CREATE_PR"
+          }')
+
+          echo "Jules Response:"
+          echo $RESPONSE
+
+      - name: Comment on PR
+        run: |
+
+          curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github+json" \
+          https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+          -d '{
+            "body": "🤖 AI Review has started via Jules.\n\nPlease wait while the branch is analyzed and improvements are generated."
           }'
