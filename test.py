@@ -17,13 +17,11 @@ def action_confirm(self):
         return True
 
     # Validate that all records have an associated partner
-    records_without_partner = self.filtered(lambda r: not r.partner_id)
+    records_without_partner = self.filtered_domain([("partner_id", "=", False)])
     if records_without_partner:
         raise UserError(_("All selected records must have an associated partner."))
 
     partners = self.partner_id
-    if not partners:
-        raise UserError(_("No valid partners found for the selected records."))
 
     orders_to_confirm = self.env["sale.order"].search([
         ("partner_id", "in", partners.ids),
